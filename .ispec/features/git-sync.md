@@ -49,9 +49,18 @@ activates if `remote` is also set.
 `origin/HEAD` → `origin/main` → `origin/master` → fallback `origin/main`.
 Mirrors the JS reference's same probe order.
 
-## Status / not yet validated
+## Verification
 
-The full Init→Push round was NOT exercised against a real remote in
-the initial implementation (would push to the user's actual GitHub).
-A throwaway test repo run is needed before this feature is considered
-verified in production.
+End-to-end exercised against a throwaway GitHub repo on 2026-05-04:
+`sync --init <ssh-url>`, `sync` (pull-then-push), `sync --status`,
+`sync on`/`sync off` toggle, foreign-commit pull (fast-forward
+merge), and the autoSync hook firing on `memex write` with auto on.
+Local and remote heads matched after every operation.
+
+Not yet exercised:
+
+- The auto-create-via-`gh` path (`sync --init` with no URL). Would
+  create a `memex-cards` private repo on the user's account and is
+  the standard onboarding path for new users.
+- Conflict resolution (divergent local + remote commits). Edge case
+  for single-machine usage.
