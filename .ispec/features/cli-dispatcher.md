@@ -27,6 +27,7 @@ total).
 | `organize [since]` | Run the organize report; touch `~/.memex/.last-organize`. |
 | `sync [--init / on / off / <url>]` | Git sync wrapper. See [[F-5]]. |
 | `mcp` | Start the MCP stdio server. See [[F-4]]. |
+| `install-skills` | Install bundled Claude Code skills to `~/.claude/skills/`. See [[F-7]]. |
 | `version` | Print version. |
 
 ## Conventions

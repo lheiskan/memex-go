@@ -14,6 +14,7 @@ import (
 	"memex/graph"
 	"memex/mcp"
 	"memex/search"
+	"memex/skills"
 	"memex/sync"
 )
 
@@ -45,6 +46,8 @@ func main() {
 		err = cmdSync(args)
 	case "mcp":
 		err = cmdMCP(args)
+	case "install-skills":
+		err = cmdInstallSkills(args)
 	case "version", "--version", "-v":
 		fmt.Println(Version)
 	case "help", "--help", "-h":
@@ -73,6 +76,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  organize [since]  Network analysis: orphans, hubs, conflicts, neighbors")
 	fmt.Fprintln(w, "  sync [arg]        Sync via git. arg: --init, on, off, or remote URL")
 	fmt.Fprintln(w, "  mcp               Start MCP server (stdio transport)")
+	fmt.Fprintln(w, "  install-skills    Install bundled Claude Code skills to ~/.claude/skills/")
 	fmt.Fprintln(w, "  version           Print version")
 }
 
@@ -311,6 +315,39 @@ func cmdSync(args []string) error {
 
 func cmdMCP(_ []string) error {
 	return mcp.ServeStdio(newStore(), memexHome(), Version)
+}
+
+func cmdInstallSkills(args []string) error {
+	fs := flag.NewFlagSet("install-skills", flag.ExitOnError)
+	target := fs.String("target", "", "Target directory (default: ~/.claude/skills/)")
+	fs.Parse(args)
+	dir := *target
+	if dir == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		dir = filepath.Join(h, ".claude", "skills")
+	}
+	results, err := skills.Install(dir)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Installing skills to %s\n", dir)
+	var installed, updated, unchanged int
+	for _, r := range results {
+		fmt.Println(r.Format())
+		switch r.Action {
+		case skills.Installed:
+			installed++
+		case skills.Updated:
+			updated++
+		case skills.Unchanged:
+			unchanged++
+		}
+	}
+	fmt.Printf("\n%d installed, %d updated, %d unchanged\n", installed, updated, unchanged)
+	return nil
 }
 
 func todayISO() string {
