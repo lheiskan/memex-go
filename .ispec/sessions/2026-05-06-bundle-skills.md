@@ -3,14 +3,31 @@ type: session
 slug: 2026-05-06-bundle-skills
 trigger: bundle upstream's claude-code skills into the go binary distribution
 classification: new-feature-requirement-exists
-status: open
+status: resolved
 affected_cards:
   - REQ-1
   - F-6
   - F-7
 deferred_cards: []
-commits: []
-outcome: ""
+commits:
+  - f05cd66
+outcome: |
+  Bundled the 5 upstream SKILL.md files into the Go binary via
+  go:embed and wired up `memex install-skills`. New feature card F-7
+  (`bundled-skills-and-install`); F-6 amended with the new subcommand
+  row. Smoke-test against a temp dir confirmed install + idempotent
+  re-install + byte-identical to the user's existing
+  ~/.claude/skills/memex-* set. Lint clean (18 cards, 0 errors).
+
+  One reconciliation update: F-7's drafted Install signature was
+  `(installed, updated int, err)`; the implementation needed
+  per-skill action info for the CLI summary, so it returns `[]Result`
+  instead. Canon updated to match the better API.
+
+  Future maintenance note (captured in Discoveries): the
+  `//go:embed` directive lists skill names explicitly; adding a 6th
+  skill requires editing skills/skills.go. TestNames pins the count
+  at 5 so a forgotten edit fails CI.
 ---
 
 ## Trigger
