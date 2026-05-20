@@ -36,3 +36,8 @@ then serves three consumers.
 - The recent-modification window is `lastOrganize` (a YYYY-MM-DD
   string usually read from `~/.memex/.last-organize`). Empty string
   means "first run, all cards are recent."
+- The report tool (CLI `organize` and MCP `memex_organize`) does NOT
+  write `.last-organize`. That responsibility lives in the
+  `memex-organize` skill, which writes it as its final step after
+  the index rebuild. This prevents the marker from advancing when an
+  agent fetches the report but skips the maintenance work.

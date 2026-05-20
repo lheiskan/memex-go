@@ -267,8 +267,6 @@ func cmdOrganize(args []string) error {
 		return err
 	}
 	fmt.Println(out)
-	// Touch .last-organize on success.
-	_ = os.WriteFile(filepath.Join(memexHome(), ".last-organize"), []byte(todayISO()+"\n"), 0o644)
 	return nil
 }
 

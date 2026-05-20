@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -210,7 +209,6 @@ func registerTools(s *srv.MCPServer, store *card.Store, home string) {
 		if err != nil {
 			return mcppkg.NewToolResultError(err.Error()), nil
 		}
-		_ = os.WriteFile(home+string(os.PathSeparator)+".last-organize", []byte(todayISO()+"\n"), 0o644)
 		sync.AutoSync(home)
 		return mcppkg.NewToolResultText(out), nil
 	})

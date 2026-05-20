@@ -41,6 +41,7 @@ digraph organize {
     "Organize report" -> "Resolve existing conflicts";
     "Resolve existing conflicts" -> "Ask user which belief wins";
     "All checks done" -> "Rebuild keyword index";
+    "Rebuild keyword index" -> "Write today's date to ~/.memex/.last-organize";
 }
 ```
 
@@ -61,7 +62,8 @@ digraph organize {
 5. **Resolve existing conflicts**: Check the "Unresolved Conflicts" section. For each card with `status: conflict`:
    - Surface it to the user: "Card X conflicts with card Y — which perspective should we keep?"
    - If the user resolves it, remove `status: conflict` from frontmatter and merge/archive as directed
-6. **Rebuild keyword index** (always, as last step)
+6. **Rebuild keyword index** (always — see below)
+7. **Mark the run complete** (final step): write today's date to `~/.memex/.last-organize`. The tool layer no longer does this for you — if you skip it, the next run won't know which cards are newly modified. Run: `date -u +%Y-%m-%d > ~/.memex/.last-organize`
 
 ## Keyword Index Maintenance
 
@@ -103,7 +105,7 @@ Use `memex write index` to save the index.
 1. Read last run date: `cat ~/.memex/.last-organize 2>/dev/null`
 2. If the file exists, only process cards where frontmatter `modified` >= that date, plus their linked neighbors
 3. If the file doesn't exist, this is the first run — process all cards
-4. After completing all checks, write today's date: `echo "YYYY-MM-DD" > ~/.memex/.last-organize` (use actual date)
+4. After all maintenance + the index rebuild, write today's date (see Process step 7). The file marks the run as actually completed, so only write it once you've finished the workflow — not after the report tool returns.
 
 When the organize skill creates new cards (e.g., splitting hubs), use `source: organize` in the frontmatter.
 

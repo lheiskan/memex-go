@@ -24,7 +24,7 @@ total).
 | `links [slug]` | Global stats table or per-card outbound/inbound. |
 | `backlinks <slug>` | Sorted list of cards linking to `<slug>`. |
 | `archive <slug>` | Move to `~/.memex/archive/`. |
-| `organize [since]` | Run the organize report; touch `~/.memex/.last-organize`. |
+| `organize [since]` | Run the organize report. Does NOT touch `~/.memex/.last-organize` — the skill writes it as its final step after the maintenance pass is actually complete. |
 | `sync [--init / on / off / <url>]` | Git sync wrapper. See [[F-5]]. |
 | `mcp` | Start the MCP stdio server. See [[F-4]]. |
 | `install-skills` | Install bundled Claude Code skills to `~/.claude/skills/`. See [[F-7]]. |
