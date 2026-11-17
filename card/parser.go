@@ -268,3 +268,81 @@ func ExtractLinks(body []byte) []string {
 	}
 	return out
 }
+
+// AuthorOptions are the frontmatter fields a caller may supply when writing a
+// card without hand-rolling YAML.
+//
+// Callers pass fields; this package owns the layout. The store's existing
+// cards depend on the exact bytes, and the first round-trip through a card is
+// lossy, so a caller assembling YAML itself is a format risk.
+type AuthorOptions struct {
+	Title    string
+	Category string
+	Tags     string
+	Source   string // explicit; overrides whatever the frontmatter says
+	Today    string // YYYY-MM-DD, injected so callers stay testable
+
+	// DefaultSource fills the field only when nothing else supplies it. The
+	// CLI passes a constant; the MCP server passes the client's own name from
+	// the initialize handshake.
+	DefaultSource string
+}
+
+// Compose returns the bytes to write for a card.
+//
+// incoming is what the caller supplied — either frontmatter plus body, or a
+// bare body. existing is the card currently on disk, or nil if there is none.
+//
+// Two paths, chosen by whether incoming carried frontmatter:
+//
+//   - With frontmatter, it wins, and the body is passed through byte-for-byte
+//     so a read-modify-write round-trip does not churn the store's history.
+//   - Without, the existing card's frontmatter is inherited so a body rewrite
+//     keeps the card's created date, and the body's layout is normalized to
+//     the blank-line-after-delimiter shape every card has.
+//
+// Non-empty AuthorOptions fields override either path. Title is the only field
+// that can neither be defaulted nor inherited, so its absence is an error.
+func Compose(incoming, existing []byte, opt AuthorOptions) ([]byte, error) {
+	fm, body := ParseFrontmatter(incoming)
+	authored := len(fm.Fields) == 0
+	if authored && len(existing) > 0 {
+		fm, _ = ParseFrontmatter(existing)
+	}
+
+	// Order matters on a new card: Set appends, so this is the field order a
+	// fresh card gets. It matches what the withdrawn memex_retro tool wrote,
+	// which is the order the store's existing cards are already in.
+	if opt.Title != "" {
+		fm.Set("title", opt.Title)
+	}
+	if _, ok := fm.Get("created"); !ok {
+		fm.Set("created", opt.Today)
+	}
+	if opt.Source != "" {
+		fm.Set("source", opt.Source)
+	} else if _, ok := fm.Get("source"); !ok && opt.DefaultSource != "" {
+		fm.Set("source", opt.DefaultSource)
+	}
+	if opt.Category != "" {
+		fm.Set("category", opt.Category)
+	}
+	if opt.Tags != "" {
+		fm.Set("tags", opt.Tags)
+	}
+	fm.Set("modified", opt.Today)
+
+	if fm.GetString("title") == "" {
+		return nil, fmt.Errorf("missing title")
+	}
+
+	if authored {
+		if !bytes.HasPrefix(body, []byte("\n")) {
+			body = append([]byte("\n"), body...)
+		}
+		if !bytes.HasSuffix(body, []byte("\n")) {
+			body = append(body, '\n')
+		}
+	}
+	return StringifyFrontmatter(body, fm), nil
+}

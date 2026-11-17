@@ -2,3 +2,6 @@
 *.test
 .DS_Store
 .claude/settings.local.json
+
+# manic session state, local to this checkout
+.manic

@@ -1,9 +1,5 @@
-// Package mcp exposes the memex tools over the Model Context Protocol via stdio.
-//
-// Replicates the upstream JS server (10 tools), with one structural improvement:
-// client identification uses mcp-go's SessionWithClientInfo accessor instead of
-// monkey-patching the transport's onmessage. Tool semantics — frontmatter
-// stamping, autoFetch/autoSync hooks, descriptions — match upstream exactly.
+// Package mcp exposes the memex storage operations over the Model Context
+// Protocol via stdio.
 package mcp
 
 import (
@@ -27,23 +23,30 @@ const defaultClientName = "mcp"
 // ServeStdio starts the MCP server on stdin/stdout. Blocks until the client
 // disconnects.
 func ServeStdio(store *card.Store, home, version string) error {
-	mcps := srv.NewMCPServer("memex", version,
-		srv.WithToolCapabilities(true),
-		srv.WithLogging(),
-	)
-	registerTools(mcps, store, home)
+	mcps := NewServer(store, home, version)
 	// JS server runs autoFetch on connect — replicate by doing it here before
 	// blocking on the transport.
 	sync.AutoFetch(home)
 	return srv.ServeStdio(mcps)
 }
 
+// NewServer builds the server with the upstream tool set registered.
+// Exported so a test can drive it over an in-process transport.
+func NewServer(store *card.Store, home, version string) *srv.MCPServer {
+	mcps := srv.NewMCPServer("memex", version,
+		srv.WithToolCapabilities(true),
+		srv.WithLogging(),
+	)
+	registerTools(mcps, store, home)
+	return mcps
+}
+
 func registerTools(s *srv.MCPServer, store *card.Store, home string) {
 	// ---- Low-level tools ----
 
 	s.AddTool(mcppkg.NewTool("memex_search",
-		mcppkg.WithDescription("Low-level search. Prefer memex_recall for task-start workflows."),
-		mcppkg.WithString("query", mcppkg.Description("Search keyword. Omit to list all cards.")),
+		mcppkg.WithDescription("Keyword search over card titles and bodies. Case-insensitive AND over tokens: every token must appear in the same card, so a sentence or task summary matches nothing. Omit the query to list all cards."),
+		mcppkg.WithString("query", mcppkg.Description("Search keywords, AND-matched: every token must appear in the same card, so keep it to 1-3 words. Omit to list all cards.")),
 		mcppkg.WithNumber("limit", mcppkg.Description("Max results (default 10)")),
 		mcppkg.WithBoolean("semantic", mcppkg.Description("Use embedding-based semantic search (NOT IMPLEMENTED in this build — keyword search is used)")),
 	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
@@ -57,7 +60,7 @@ func registerTools(s *srv.MCPServer, store *card.Store, home string) {
 	})
 
 	s.AddTool(mcppkg.NewTool("memex_read",
-		mcppkg.WithDescription("Low-level read. Use after memex_recall to drill into specific cards."),
+		mcppkg.WithDescription("Read one card in full by slug. Follow a search or an index entry with this — a slug list is not the memory."),
 		mcppkg.WithString("slug", mcppkg.Required(), mcppkg.Description("Card slug (e.g. 'my-card-name')")),
 	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
 		slug := getString(req, "slug")
@@ -69,39 +72,37 @@ func registerTools(s *srv.MCPServer, store *card.Store, home string) {
 	})
 
 	s.AddTool(mcppkg.NewTool("memex_write",
-		mcppkg.WithDescription("Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically)."),
+		mcppkg.WithDescription("Write or overwrite a card. Frontmatter is authored for you: pass the body as content and the fields as arguments. One atomic insight per card, with [[wikilinks]] to related cards."),
 		mcppkg.WithString("slug", mcppkg.Required(), mcppkg.Description("Card slug in kebab-case (e.g. 'my-insight')")),
-		mcppkg.WithString("content", mcppkg.Required(), mcppkg.Description("Full card content: YAML frontmatter + markdown body. Title must be ≤60 chars, noun phrase not full sentence.")),
+		mcppkg.WithString("content", mcppkg.Required(), mcppkg.Description("Markdown body. May carry its own YAML frontmatter, in which case that frontmatter is preserved verbatim.")),
+		mcppkg.WithString("title", mcppkg.Description("Card title (<=60 chars, noun phrase not full sentence). Required unless content carries frontmatter.")),
 		mcppkg.WithString("category", mcppkg.Description("Card category (e.g. 'frontend', 'architecture', 'devops', 'bugfix')")),
+		mcppkg.WithString("tags", mcppkg.Description("Comma-separated tags")),
 	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
 		slug := getString(req, "slug")
-		content := getString(req, "content")
-		category := getString(req, "category")
-		fm, body := card.ParseFrontmatter([]byte(content))
-		if _, ok := fm.Get("source"); !ok {
-			fm.Set("source", clientNameFromCtx(ctx))
+		existing, _ := store.ReadCard(slug) // nil when the card is new
+		// Policy lives in card.Compose so this path and the CLI cannot drift
+		// apart. DefaultSource is the calling client's own name, taken from
+		// the initialize handshake.
+		out, err := card.Compose([]byte(getString(req, "content")), existing, card.AuthorOptions{
+			Title:         getString(req, "title"),
+			Category:      getString(req, "category"),
+			Tags:          getString(req, "tags"),
+			Today:         todayISO(),
+			DefaultSource: clientNameFromCtx(ctx),
+		})
+		if err != nil {
+			return mcppkg.NewToolResultError(fmt.Sprintf("%s: pass title, or include frontmatter in content", err)), nil
 		}
-		if category != "" {
-			if _, ok := fm.Get("category"); !ok {
-				fm.Set("category", category)
-			}
-		}
-		// Required fields check matches the CLI write path.
-		for _, f := range []string{"title", "created", "source"} {
-			if _, ok := fm.Get(f); !ok {
-				return mcppkg.NewToolResultError(fmt.Sprintf("missing required field: %s", f)), nil
-			}
-		}
-		fm.Set("modified", todayISO())
-		out := card.StringifyFrontmatter(body, fm)
 		if err := store.WriteCard(slug, out); err != nil {
 			return mcppkg.NewToolResultError(err.Error()), nil
 		}
-		return mcppkg.NewToolResultText(fmt.Sprintf("Card '%s' written successfully.", slug)), nil
+		sync.AutoSync(home)
+		return mcppkg.NewToolResultText(fmt.Sprintf("Card '%s' written.", slug)), nil
 	})
 
 	s.AddTool(mcppkg.NewTool("memex_links",
-		mcppkg.WithDescription("Low-level link stats. Prefer memex_organize for maintenance workflows."),
+		mcppkg.WithDescription("Link graph stats, global or for one card. Prefer memex_organize for a full maintenance report."),
 		mcppkg.WithString("slug", mcppkg.Description("Card slug. Omit for global stats.")),
 	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
 		slug := getString(req, "slug")
@@ -126,78 +127,7 @@ func registerTools(s *srv.MCPServer, store *card.Store, home string) {
 		return mcppkg.NewToolResultText(fmt.Sprintf("Card '%s' archived.", slug)), nil
 	})
 
-	// ---- High-level tools (with autoFetch/autoSync hooks) ----
-
-	s.AddTool(mcppkg.NewTool("memex_recall",
-		mcppkg.WithDescription("IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory — knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. Optionally search by query. Without calling this first, you will miss context from prior sessions and repeat past mistakes."),
-		mcppkg.WithString("query", mcppkg.Description("Optional search query to find specific cards")),
-		mcppkg.WithString("category", mcppkg.Description("Filter by frontmatter category")),
-		mcppkg.WithString("tag", mcppkg.Description("Filter by frontmatter tag")),
-		mcppkg.WithString("author", mcppkg.Description("Filter by frontmatter author/source")),
-		mcppkg.WithString("since", mcppkg.Description("Only cards created/modified after this date (YYYY-MM-DD)")),
-		mcppkg.WithString("before", mcppkg.Description("Only cards created/modified before this date (YYYY-MM-DD)")),
-	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
-		sync.AutoFetch(home)
-		query := getString(req, "query")
-		filter := search.Filter{
-			Category: getString(req, "category"),
-			Tag:      getString(req, "tag"),
-			Author:   getString(req, "author"),
-			Since:    getString(req, "since"),
-			Before:   getString(req, "before"),
-		}
-		if query != "" {
-			results, listAll, err := search.Run(store, query, search.Options{Limit: search.DefaultLimit, Filter: filter})
-			if err != nil {
-				return mcppkg.NewToolResultError(err.Error()), nil
-			}
-			return mcppkg.NewToolResultText(formatSearchResults(results, listAll)), nil
-		}
-		// No query — try index card first, fall back to listing.
-		if filter.Empty() {
-			if raw, err := store.ReadCard("index"); err == nil {
-				return mcppkg.NewToolResultText(string(raw)), nil
-			}
-		}
-		results, listAll, err := search.Run(store, "", search.Options{Filter: filter})
-		if err != nil {
-			return mcppkg.NewToolResultError(err.Error()), nil
-		}
-		return mcppkg.NewToolResultText(formatSearchResults(results, listAll)), nil
-	})
-
-	s.AddTool(mcppkg.NewTool("memex_retro",
-		mcppkg.WithDescription("IMPORTANT: Call this at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings — things that would be useful in future sessions (architecture decisions, gotchas, patterns discovered, bug root causes). Handles frontmatter, source tagging, and cross-device sync automatically."),
-		mcppkg.WithString("slug", mcppkg.Required(), mcppkg.Description("Card slug in kebab-case")),
-		mcppkg.WithString("title", mcppkg.Required(), mcppkg.Description("Card title (keep short, ≤60 chars, noun phrase not full sentence)")),
-		mcppkg.WithString("body", mcppkg.Required(), mcppkg.Description("Card body in markdown with [[wikilinks]]")),
-		mcppkg.WithString("category", mcppkg.Description("Category (e.g. frontend, architecture, devops, bugfix)")),
-	), func(ctx context.Context, req mcppkg.CallToolRequest) (*mcppkg.CallToolResult, error) {
-		sync.AutoFetch(home)
-		slug := getString(req, "slug")
-		title := getString(req, "title")
-		body := getString(req, "body")
-		category := getString(req, "category")
-		today := todayISO()
-		fm := card.Frontmatter{}
-		fm.Set("title", title)
-		fm.Set("created", today)
-		fm.Set("source", clientNameFromCtx(ctx))
-		if category != "" {
-			fm.Set("category", category)
-		}
-		fm.Set("modified", today)
-		out := card.StringifyFrontmatter([]byte(body), fm)
-		if err := store.WriteCard(slug, out); err != nil {
-			return mcppkg.NewToolResultError(err.Error()), nil
-		}
-		sync.AutoSync(home)
-		tip := ""
-		if sync.ReadConfig(home).Remote == "" {
-			tip = "\n\nTip: To sync cards across devices, run: memex sync --init && memex sync on"
-		}
-		return mcppkg.NewToolResultText(fmt.Sprintf("Card '%s' saved.%s", slug, tip)), nil
-	})
+	// ---- Tools that also sync (autoFetch before, autoSync after) ----
 
 	s.AddTool(mcppkg.NewTool("memex_organize",
 		mcppkg.WithDescription("Analyze the card network for maintenance. Returns link stats, orphans, hubs, unresolved conflicts, and recently modified cards paired with their neighbors for contradiction detection. Call this periodically to keep the knowledge graph healthy."),
@@ -323,7 +253,7 @@ func formatSearchResults(rs []search.Result, listAll bool) string {
 		var b strings.Builder
 		fmt.Fprintf(&b, "## %s\n%s\n%s", r.Slug, r.Title, r.FirstParagraph)
 		if r.MatchLine != "" {
-			fmt.Fprintf(&b, "\n> 匹配行: %s", r.MatchLine)
+			fmt.Fprintf(&b, "\n> Matched line: %s", r.MatchLine)
 		}
 		if len(r.Links) > 0 {
 			wikis := make([]string, len(r.Links))

@@ -1,6 +1,5 @@
 // Package sync wraps the `git` and `gh` CLIs to keep ~/.memex synchronised
-// across devices. It does not link in a Go git library — the JS reference
-// just shells out, and matching that behavior is simpler and more debuggable.
+// across devices.
 package sync
 
 import (

@@ -1,40 +1,44 @@
 ---
 name: memex-recall
-description: Load prior knowledge from Zettelkasten memory before starting any task.
-whenToUse: At the START of every new conversation or task, BEFORE doing any work. This skill loads prior knowledge from the Zettelkasten memory system. Without it, you have no memory of past sessions. Invoke proactively — do not wait for the user to ask.
+description: Load prior knowledge from Zettelkasten memory when the task likely benefits from past context.
+whenToUse: When the current task likely overlaps with prior work — debugging a familiar area, continuing a project, or referencing past decisions. Prefer a task-specific query with 1-3 keywords over loading the full index. Do not invoke on every conversation start — only when memory is likely relevant.
 ---
 
 # Memory Recall
 
 You have access to a Zettelkasten memory system via the `memex` CLI. Before starting this task, search your memory for relevant prior knowledge.
 
-## Tools Available
+## Commands
 
-Two equivalent interfaces exist — use whichever your environment supports:
+    memex search --limit 5 <keywords>    # 1-3 keywords; see below
+    memex search                         # no query: list every card
+    memex read <slug>
+    memex links <slug>                   # what a card connects to
 
-| CLI (Claude Code with memex in PATH) | MCP tool (VSCode / Cursor / any MCP client) |
-|---------------------------------------|----------------------------------------------|
-| `memex read index`                    | `memex_read` with slug `index`               |
-| `memex search <query>`               | `memex_search` with query arg                |
-| `memex read <slug>`                   | `memex_read` with slug arg                   |
-| `memex search` (no args)             | `memex_search` with no args                  |
+**Why 1-3 keywords.** Search is a case-insensitive **AND** over tokens: every
+token must appear in the same card. A sentence or a task summary therefore
+matches nothing, and prints an empty result that reads exactly like "the
+memory has nothing on this". If a search comes back empty, shorten it before
+concluding anything.
 
-The rest of this skill uses CLI syntax for brevity. Substitute MCP tool calls if CLI is unavailable.
+An MCP client without a shell has the same operations as `memex_search` and
+`memex_read`, taking the same arguments as named fields.
 
 ## Process
 
 ```dot
 digraph recall {
-    "Task received" -> "memex read index";
-    "memex read index" -> "Index exists?" [shape=diamond];
-    "Index exists?" -> "Scan index for relevant concepts/slugs" [label="yes"];
-    "Index exists?" -> "Fallback: generate 2-3 search queries" [label="no"];
-    "Scan index for relevant concepts/slugs" -> "memex read <card>" ;
-    "Fallback: generate 2-3 search queries" -> "memex search <query>";
+    "Task received" -> "Relevant to prior work?" [shape=diamond];
+    "Relevant to prior work?" -> "Generate 1-3 search keywords" [label="yes"];
+    "Relevant to prior work?" -> "Proceed without recall" [label="no"];
+    "Generate 1-3 search keywords" -> "memex search <query>";
     "memex search <query>" -> "Review summaries";
     "Review summaries" -> "Relevant cards found?" [shape=diamond];
     "Relevant cards found?" -> "memex read <card>" [label="yes"];
-    "Relevant cards found?" -> "More queries to try?" [label="no"];
+    "Relevant cards found?" -> "Need broad overview?" [label="no"];
+    "Need broad overview?" -> "memex read index" [label="yes"];
+    "Need broad overview?" -> "Proceed without recall" [label="no"];
+    "memex read index" -> "Pick relevant slugs" -> "memex read <card>";
     "memex read <card>" -> "See [[links]] in content";
     "See [[links]] in content" -> "Links worth following?" [shape=diamond];
     "Links worth following?" -> "memex read <linked-card>" [label="yes"];
@@ -48,16 +52,13 @@ digraph recall {
 }
 ```
 
-### Step 1: Read the keyword index
+### Step 1: Targeted keyword search (preferred)
 
-Run `memex read index` first. The index is a curated concept → card mapping (Luhmann's Schlagwortregister). It's much smaller than all cards combined and gives you the best entry points.
+Generate 1-3 search keywords from the current task and run `memex search <keyword>` for each. This is faster and more focused than reading the full index.
 
-If the index doesn't exist yet (card not found), fall back to Step 2.
+### Step 2: Read the keyword index (when needed)
 
-### Step 2: Targeted reads or keyword search
-
-- **If index exists**: Pick the most relevant slugs from the index and `memex read` them directly.
-- **If no index**: Generate 2-3 search keywords (try both Chinese and English terms) and run `memex search <keyword>` for each.
+If you need a broad overview of what's in memory (e.g. first time working in this area, or the task is vague), run `memex read index`. The index is a curated concept → card mapping. It's much smaller than all cards combined and gives you entry points.
 
 ### Step 3: Follow links
 
@@ -71,6 +72,7 @@ When you have enough context, summarize your findings and proceed with the task.
 
 - **max_hops: 3** — Do not follow links more than 3 levels deep
 - **max_cards_read: 20** — Do not read more than 20 cards in a single recall
+- **no raw secrets** — Never include actual secrets, credentials, tokens, or exact secret file contents in search queries. Use abstract descriptions instead (e.g. `gitee pr auth workflow`, not a token value or credential file contents).
 - If you hit either limit, stop and work with what you have
 
 ## Counting Rules
@@ -80,7 +82,7 @@ When you have enough context, summarize your findings and proceed with the task.
 
 ## Important
 
-- Always try `memex read index` first — it's the fastest path to relevant cards
-- Generate search queries in BOTH Chinese and English to maximize recall
+- Prefer targeted `memex search <keyword>` over reading the full index — it's faster and more focused
+- Only `memex read index` when you need a broad overview or search returns nothing useful
 - If search returns nothing useful, that's fine — proceed without memory context
 - Summarize what you found before proceeding, so the findings are in your context

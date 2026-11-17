@@ -1,0 +1,12 @@
+memex (Go)
+Copyright (c) 2026 lheiskan
+
+This project is an independent Go reimplementation of memex
+(https://github.com/iamtouchskyer/memex, npm `@touchskyer/memex`),
+Copyright (c) 2026 iamtouchskyer, which is also MIT licensed. The Go source is
+written from scratch; it targets compatibility with upstream's on-disk card
+format and MCP / CLI surface.
+
+The files under `skills/` are derived from upstream's `skills/` directory
+(`memex-sync/SKILL.md` verbatim, the other four adapted). Upstream's copyright
+notice is retained in LICENSE for that reason.
